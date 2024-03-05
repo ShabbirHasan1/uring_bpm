@@ -24,7 +24,7 @@ impl DiskManager {
     pub async fn read(&self, pid: PageId, frame: Page) -> Result<Page> {
         let f = OpenOptions::new().read(true).open(&self.file_path).await?;
 
-        let offset = pid.0 * PAGE_SIZE;
+        let offset = pid.id * PAGE_SIZE;
 
         let (res, frame) = f.read_at(frame, offset as u64).await;
         let _n = res?;
@@ -40,7 +40,7 @@ impl DiskManager {
     pub async fn write(&self, pid: PageId, frame: Page) -> Result<Page> {
         let f = OpenOptions::new().write(true).open(&self.file_path).await?;
 
-        let offset = pid.0 * PAGE_SIZE;
+        let offset = pid.id * PAGE_SIZE;
 
         let (res, frame) = f.write_at(frame, offset as u64).await;
         let _n = res?;
@@ -50,6 +50,10 @@ impl DiskManager {
         f.close().await?;
 
         Ok(frame)
+    }
+
+    pub fn remove(&self, pid: PageId) -> Result<()> {
+        todo!("Remove a page of data from the disk")
     }
 }
 
@@ -64,24 +68,24 @@ fn test_dm_basic() {
         for (i, &b) in b"Hello, World!\n0\n".iter().enumerate() {
             frame_0.buf[i] = b;
         }
-        dm.write(PageId(0), frame_0).await.unwrap();
+        dm.write(PageId { id: 0 }, frame_0).await.unwrap();
 
         let mut frame_1 = Page::default();
         for (i, &b) in b"Hello, World!\n1\n".iter().enumerate() {
             frame_1.buf[i] = b;
         }
-        dm.write(PageId(1), frame_1).await.unwrap();
+        dm.write(PageId { id: 1 }, frame_1).await.unwrap();
 
         let mut frame_2 = Page::default();
         for (i, &b) in b"Hello, World!\n2\n".iter().enumerate() {
             frame_2.buf[i] = b;
         }
-        dm.write(PageId(2), frame_2).await.unwrap();
+        dm.write(PageId { id: 2 }, frame_2).await.unwrap();
 
-        let new_frame_0 = dm.read(PageId(0), Page::default()).await.unwrap();
+        let new_frame_0 = dm.read(PageId { id: 0 }, Page::default()).await.unwrap();
         println!("Page 0 bytes: {:?}", new_frame_0.buf);
 
-        let new_frame_1 = dm.read(PageId(1), Page::default()).await.unwrap();
+        let new_frame_1 = dm.read(PageId { id: 1 }, Page::default()).await.unwrap();
         println!("Page 1 bytes: {:?}", new_frame_1.buf);
     })
 }
