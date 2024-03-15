@@ -42,7 +42,7 @@ impl DiskManager {
 
         let offset = pid.id * PAGE_SIZE;
 
-        let (res, frame) = f.write_at(frame, offset as u64).await;
+        let (res, frame) = f.write_at(frame, offset as u64).submit().await;
         let _n = res?;
 
         println!("Bytes written at offset {offset}: {_n}");
