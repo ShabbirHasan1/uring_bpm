@@ -46,6 +46,7 @@ impl<T> HybridLock<T> {
     /// The calling thread will be blocked until there is no writer which holds the lock.
     pub async fn read(&self) -> HybridRwLockReadGuard<T> {
         let guard = self.rwlock.read().await;
+
         HybridRwLockReadGuard {
             guard,
             lock_ref: self,
@@ -56,10 +57,10 @@ impl<T> HybridLock<T> {
     ///
     /// The calling thread will be blocked until no readers nor writers hold the lock.
     pub async fn write(&self) -> HybridRwLockWriteGuard<T> {
-        let guard = self.rwlock.write().await;
-
         // This store must be seen by any loads future
         self.locked_exclusive.store(LOCKED, Ordering::Release);
+
+        let guard = self.rwlock.write().await;
 
         HybridRwLockWriteGuard {
             guard,
