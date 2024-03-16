@@ -101,15 +101,13 @@ impl<T> HybridLock<T> {
     where
         F: Fn(*const T) -> R,
     {
-        if self.is_locked_exclusive() {
-            return None;
-        }
+        self.is_locked_exclusive().then_some(())?;
         let start_version = self.current_version();
 
         let result = read_callback(self.rwlock.data_ptr());
 
-        let safe = !self.is_locked_exclusive() && start_version == self.current_version();
-        safe.then_some(result)
+        self.is_locked_exclusive().then_some(())?;
+        (start_version == self.current_version()).then_some(result)
     }
 
     async fn fallback<F, R>(&self, read_callback: &F) -> R
