@@ -11,7 +11,7 @@ const UNLOCKED: bool = false;
 pub struct HybridLock<T> {
     rwlock: RwLock<T>,
     locked_exclusive: AtomicBool,
-    version: AtomicUsize,
+    version_counter: AtomicUsize,
 }
 
 impl<T> HybridLock<T> {
@@ -20,23 +20,19 @@ impl<T> HybridLock<T> {
         HybridLock {
             rwlock: RwLock::new(value),
             locked_exclusive: AtomicBool::new(UNLOCKED),
-            version: AtomicUsize::new(0),
+            version_counter: AtomicUsize::new(0),
         }
-    }
-
-    /// Returns a raw pointer to the underlying data.
-    pub fn data_ptr(&self) -> *const T {
-        self.rwlock.data_ptr()
     }
 
     /// Gets the current version of this lock.
     pub fn current_version(&self) -> usize {
         // TODO is this actually necessary?
-        // This `atomic::fence` prevents the reordering of `is_locked_exclusive()` and `self.version.load`.
-        // This is necessary as we don't know whether the RwLock uses the memory ordering strong enough to
-        // prevent such reordering.
+        // This `atomic::fence` prevents the reordering of `is_locked_exclusive()` and
+        // `self.version.load`.
+        // This is necessary as we don't know whether the `RwLock` uses the memory ordering strong
+        // enough to prevent such reordering.
         fence(Ordering::Acquire);
-        self.version.load(Ordering::Acquire)
+        self.version_counter.load(Ordering::Acquire)
     }
 
     pub fn is_locked_exclusive(&self) -> bool {
@@ -58,7 +54,7 @@ impl<T> HybridLock<T> {
 
     /// Locks this hybrid lock with exclusive write access.
     ///
-    /// The calling thread will be blocked until there are no readers or writers which hold the lock.
+    /// The calling thread will be blocked until no readers nor writers hold the lock.
     pub async fn write(&self) -> HybridRwLockWriteGuard<T> {
         let guard = self.rwlock.write().await;
 
@@ -82,14 +78,14 @@ impl<T> HybridLock<T> {
     /// derived from the `*const T` pointer they receive in the closure.
     /// This would break the alias rule that a shared and exclusive reference
     /// could exist at the same time.
-    pub async unsafe fn optimistic<F, R>(&self, f: &F) -> R
+    pub async unsafe fn optimistic<F, R>(&self, read_callback: &F) -> R
     where
         F: Fn(*const T) -> R,
     {
-        if let Some(result) = self.try_optimistic(f) {
+        if let Some(result) = self.try_optimistic(read_callback) {
             result
         } else {
-            self.fallback(f).await
+            self.fallback(read_callback).await
         }
     }
 
@@ -101,35 +97,27 @@ impl<T> HybridLock<T> {
     /// derived from the `*const T` pointer they receive in the closure.
     /// This would break the alias rule that a shared and exclusive reference
     /// could exist at the same time.
-    pub unsafe fn try_optimistic<F, R>(&self, f: &F) -> Option<R>
+    pub unsafe fn try_optimistic<F, R>(&self, read_callback: &F) -> Option<R>
     where
         F: Fn(*const T) -> R,
     {
         if self.is_locked_exclusive() {
             return None;
         }
+        let start_version = self.current_version();
 
-        let pre_version = self.current_version();
-        let result = f(self.data_ptr());
+        let result = read_callback(self.rwlock.data_ptr());
 
-        if self.is_locked_exclusive() {
-            return None;
-        }
-
-        let post_version = self.current_version();
-        if pre_version == post_version {
-            Some(result)
-        } else {
-            None
-        }
+        let safe = !self.is_locked_exclusive() && start_version == self.current_version();
+        safe.then_some(result)
     }
 
-    async fn fallback<F, R>(&self, f: &F) -> R
+    async fn fallback<F, R>(&self, read_callback: &F) -> R
     where
         F: Fn(*const T) -> R,
     {
         let guard = self.read().await;
-        f(guard.lock_ref.data_ptr())
+        read_callback(guard.lock_ref.rwlock.data_ptr())
     }
 }
 
@@ -169,6 +157,7 @@ impl<'a, T> DerefMut for HybridRwLockWriteGuard<'a, T> {
 
 impl<T> Drop for HybridRwLockWriteGuard<'_, T> {
     fn drop(&mut self) {
+        self.lock_ref.version_counter.fetch_add(1, Ordering::AcqRel);
         self.lock_ref
             .locked_exclusive
             .store(UNLOCKED, Ordering::Release);
