@@ -1,15 +1,10 @@
-
-
 use crate::page::PageId;
 use tokio_uring::buf::fixed::{FixedBuf, FixedBufRegistry};
 
-
 // A special FixedBuf that always points to a valid FrameBuf
 struct PageBuf {
-    buf: FixedBuf
+    buf: FixedBuf,
 }
-
-
 
 enum LockState {
     Unloaded,
@@ -26,7 +21,7 @@ enum Temperature {
 
 enum Swip {
     Id(PageId),
-    Ptr(FixedBuf)
+    Ptr(FixedBuf),
 }
 
 struct PageHandle {
@@ -34,26 +29,9 @@ struct PageHandle {
     temperature: Temperature,
     readers: usize,
     id: PageId,
-    swip: Option<FixedBuf>
+    swip: Option<FixedBuf>,
 }
-
-
-
-
-
-
-
 
 pub struct BufferPool {
-    registry: FixedBufRegistry<Vec<u8>>
+    registry: FixedBufRegistry<Vec<u8>>,
 }
-
-
-
-
-
-
-
-
-
-
