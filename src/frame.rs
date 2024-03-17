@@ -24,7 +24,7 @@ unsafe impl Sync for Frame {}
 /// A buffer that is shared between the user and the kernel.
 pub struct SharedFrame {
     /// Owned buffer to data.
-    /// Eventually, we will want to make sure all buffers point to contiguous memory.
+    /// Eventually, we will want to make sure all buffers point  to contiguous memory.
     buf: Box<[u8; PAGE_SIZE]>,
 }
 
