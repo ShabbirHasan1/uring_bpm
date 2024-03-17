@@ -1,7 +1,9 @@
-use std::ops::{Deref, DerefMut};
-
-use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use tokio_uring::buf::fixed::FixedBuf;
+use crate::frame::Frame;
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
+use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PageId {
@@ -17,18 +19,24 @@ impl From<PageId> for u64 {
 
 pub const PAGE_SIZE: usize = 1 << 12; // 4096
 
+#[derive(Default)]
+pub struct Swip {
+    data: Option<Frame>,
+}
+
+#[derive(Clone)]
 pub struct Page {
     /// The unique ID of the logical page of data.
     pid: PageId,
-    /// RwLock-protected optional buffer
-    data: RwLock<Option<FixedBuf>>,
+    /// RwLock-protected Swip
+    swip: Arc<RwLock<Swip>>,
 }
 
 impl Page {
     fn new(pid: PageId) -> Self {
         Self {
             pid,
-            data: RwLock::new(None),
+            swip: Arc::new(RwLock::new(Swip::default())),
         }
     }
 
@@ -45,31 +53,31 @@ impl Page {
     }
 }
 
-struct ReadPageGuard<'a> {
-    guard: RwLockReadGuard<'a, FixedBuf>,
+struct ReadPageGuard {
+    guard: OwnedRwLockReadGuard<Frame>,
 }
 
-impl Deref for ReadPageGuard<'_> {
-    type Target = FixedBuf;
+impl Deref for ReadPageGuard {
+    type Target = Frame;
 
     fn deref(&self) -> &Self::Target {
         self.guard.deref()
     }
 }
 
-struct WritePageGuard<'a> {
-    guard: RwLockWriteGuard<'a, FixedBuf>,
+struct WritePageGuard {
+    guard: OwnedRwLockWriteGuard<Frame>,
 }
 
-impl Deref for WritePageGuard<'_> {
-    type Target = FixedBuf;
+impl Deref for WritePageGuard {
+    type Target = Frame;
 
     fn deref(&self) -> &Self::Target {
         self.guard.deref()
     }
 }
 
-impl DerefMut for WritePageGuard<'_> {
+impl DerefMut for WritePageGuard {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.guard.deref_mut()
     }
