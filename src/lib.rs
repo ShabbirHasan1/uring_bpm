@@ -3,4 +3,5 @@
 pub mod buffer;
 pub mod disk_manager;
 pub mod page;
-// pub mod replacer;
+pub mod frame;
+
