@@ -1,9 +1,26 @@
 use crate::page::PAGE_SIZE;
-use std::mem::ManuallyDrop;
+use std::{
+    mem::ManuallyDrop,
+    ops::{Deref, DerefMut},
+};
 use tokio_uring::buf::{fixed::FixedBuf, IoBuf, IoBufMut};
 
 pub struct Frame {
     buf: ManuallyDrop<FixedBuf>,
+}
+
+impl Deref for Frame {
+    type Target = FixedBuf;
+
+    fn deref(&self) -> &Self::Target {
+        self.buf.deref()
+    }
+}
+
+impl DerefMut for Frame {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.buf.deref_mut()
+    }
 }
 
 /// Safety: The only shared mutable state in the [`FixedBuf`] is the `registry` field inside of it,
@@ -26,6 +43,23 @@ pub struct SharedFrame {
     /// Owned buffer to data.
     /// Eventually, we will want to make sure all buffers point  to contiguous memory.
     buf: Box<[u8; PAGE_SIZE]>,
+}
+
+impl Default for SharedFrame {
+    fn default() -> Self {
+        // Allocate PAGE_SIZE bytes on the heap
+        let boxed_slice = vec![0u8; PAGE_SIZE].into_boxed_slice();
+
+        // Turn into a raw pointer
+        let ptr = Box::into_raw(boxed_slice) as *mut [u8; PAGE_SIZE];
+
+        // Reconstruct a Box of an array with a fixed size.
+        // Safety: We allocated exactly PAGE_SIZE bytes through the vector, so we are able to
+        // reconstruct as a boxed array with PAGE_SIZE bytes.
+        let buf = unsafe { Box::from_raw(ptr) };
+
+        Self { buf }
+    }
 }
 
 unsafe impl IoBuf for SharedFrame {
