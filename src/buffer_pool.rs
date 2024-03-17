@@ -6,11 +6,10 @@ use crate::{
 use tokio_uring::buf::fixed::FixedBufRegistry;
 
 pub struct BufferPool {
+    /// The disk manager in charge of reading from and writing to disk.
     disk_manager: DiskManager,
     /// The registry of buffers shared between the user and the kernel.
     registry: FixedBufRegistry<SharedFrame>,
-    /// The pages that are currently in memory
-    pages: Vec<Option<Page>>,
 }
 
 impl BufferPool {
@@ -19,7 +18,6 @@ impl BufferPool {
         Self {
             disk_manager,
             registry: FixedBufRegistry::new(buffers),
-            pages: Vec::with_capacity(frames),
         }
     }
 
