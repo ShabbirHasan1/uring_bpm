@@ -31,7 +31,7 @@ const COLD: u8 = 2;
 /// If it is Hot or Cool, then the page is in memory (Some variant)
 /// If it is Cold, the page is not in memory (None variant)
 /// When this is Cold,
-struct Temperature(AtomicU8);
+pub struct Temperature(AtomicU8);
 
 impl Temperature {
     /// Changes state from `COOL` to `HOT. Does not change state if it is `COLD` or `HOT`.

@@ -10,6 +10,7 @@ use tokio_uring::{
 
 pub struct DiskManager {
     file_path: String,
+    /// TODO figure out how to make this Send and Sync
     fd: File,
 }
 
