@@ -7,10 +7,6 @@ use std::{
 };
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-const HOT: u8 = 0;
-const COOL: u8 = 1;
-const COLD: u8 = 2;
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PageId {
     id: usize,
@@ -24,6 +20,10 @@ impl From<PageId> for u64 {
 }
 
 pub const PAGE_SIZE: usize = 1 << 12; // 4096
+
+const HOT: u8 = 0;
+const COOL: u8 = 1;
+const COLD: u8 = 2;
 
 /// 3 States: Hot, Cool, and Cold
 /// If it is Hot or Cool, then the page is in memory (Some variant)
