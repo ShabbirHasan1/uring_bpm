@@ -3,16 +3,28 @@ use crate::{
     page::{PageId, PAGE_SIZE},
 };
 use std::io;
-use tokio_uring::BufResult;
+use tokio_uring::{
+    fs::{File, OpenOptions},
+    BufResult,
+};
 
 pub struct DiskManager {
     file_path: String,
+    f: File,
 }
 
 impl DiskManager {
     /// Creates a new [`DiskManager`] instance.
     pub async fn new(file_path: String) -> io::Result<Self> {
-        todo!()
+        let f = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&file_path)
+            .await?;
+
+        // Purposefully leak the file descriptor
+
+        Ok(Self { file_path, f })
     }
 
     /// Reads a page on disk into a `Frame`, overwriting any data in the input `Frame`,
