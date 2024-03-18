@@ -31,7 +31,7 @@ impl DiskManager {
         &self.file_path
     }
 
-    /// Reads a page on disk into a `Frame`, overwriting any data in the input `Frame`,
+    /// Reads a page on disk into a `Frame`, overwriting any data in the input `Frame`.
     pub async fn read(&self, pid: PageId, frame: Frame) -> BufResult<usize, Frame> {
         let page_index: u64 = Into::into(pid);
         let offset = page_index * (PAGE_SIZE as u64);
@@ -39,7 +39,7 @@ impl DiskManager {
         self.fd.read_fixed_at(frame, offset).await
     }
 
-    /// Writes a `Frame`'s contents out to disk, overwriting data on the disk,
+    /// Writes a `Frame`'s contents out to disk, overwriting data on the disk.
     pub async fn write(&self, pid: PageId, frame: Frame) -> BufResult<usize, Frame> {
         let page_index: u64 = Into::into(pid);
         let offset = page_index * (PAGE_SIZE as u64);
