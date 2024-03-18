@@ -1,9 +1,9 @@
 use crate::page::PAGE_SIZE;
 use std::{
     mem::ManuallyDrop,
-    ops::{Deref, DerefMut},
+    ops::{Deref, DerefMut, RangeBounds, RangeFull},
 };
-use tokio_uring::buf::{fixed::FixedBuf, IoBuf, IoBufMut};
+use tokio_uring::buf::{fixed::FixedBuf, BoundedBuf, BoundedBufMut, IoBuf, IoBufMut, Slice};
 
 pub struct Frame {
     buf: ManuallyDrop<FixedBuf>,
@@ -37,6 +37,58 @@ unsafe impl Send for Frame {}
 /// mutations must be performed through an exclusive reference to a [`FixedBuf`], this means that
 /// it suffices for [`Frame`] to be `Sync`.
 unsafe impl Sync for Frame {}
+
+impl BoundedBuf for Frame {
+    type Buf = FixedBuf;
+
+    type Bounds = RangeFull;
+
+    fn slice(self, range: impl RangeBounds<usize>) -> Slice<Self::Buf> {
+        ManuallyDrop::into_inner(self.buf).slice(range)
+    }
+
+    fn slice_full(self) -> Slice<Self::Buf> {
+        ManuallyDrop::into_inner(self.buf).slice_full()
+    }
+
+    fn get_buf(&self) -> &Self::Buf {
+        &self.buf
+    }
+
+    fn bounds(&self) -> Self::Bounds {
+        self.buf.bounds()
+    }
+
+    fn from_buf_bounds(buf: Self::Buf, _: Self::Bounds) -> Self {
+        Self {
+            buf: ManuallyDrop::new(buf),
+        }
+    }
+
+    fn stable_ptr(&self) -> *const u8 {
+        BoundedBuf::stable_ptr(self.buf.deref())
+    }
+
+    fn bytes_init(&self) -> usize {
+        BoundedBuf::bytes_init(self.buf.deref())
+    }
+
+    fn bytes_total(&self) -> usize {
+        BoundedBuf::bytes_total(self.buf.deref())
+    }
+}
+
+impl BoundedBufMut for Frame {
+    type BufMut = FixedBuf;
+
+    fn stable_mut_ptr(&mut self) -> *mut u8 {
+        BoundedBufMut::stable_mut_ptr(self.buf.deref_mut())
+    }
+
+    unsafe fn set_init(&mut self, pos: usize) {
+        BoundedBufMut::set_init(self.buf.deref_mut(), pos)
+    }
+}
 
 /// A buffer that is shared between the user and the kernel.
 pub struct SharedFrame {

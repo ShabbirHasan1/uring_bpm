@@ -10,13 +10,13 @@ use tokio_uring::{
 
 pub struct DiskManager {
     file_path: String,
-    f: File,
+    fd: File,
 }
 
 impl DiskManager {
     /// Creates a new [`DiskManager`] instance.
     pub async fn new(file_path: String) -> io::Result<Self> {
-        let f = OpenOptions::new()
+        let fd = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&file_path)
@@ -24,21 +24,22 @@ impl DiskManager {
 
         // Purposefully leak the file descriptor
 
-        Ok(Self { file_path, f })
+        Ok(Self { file_path, fd })
     }
 
     /// Reads a page on disk into a `Frame`, overwriting any data in the input `Frame`,
-    pub async fn read(&self, pid: PageId, frame: Frame) -> BufResult<(), Frame> {
-        todo!()
+    pub async fn read(&self, pid: PageId, frame: Frame) -> BufResult<usize, Frame> {
+        let page_index: u64 = Into::into(pid);
+        let offset = page_index * (PAGE_SIZE as u64);
+
+        self.fd.read_fixed_at(frame, offset).await
     }
 
     /// Writes a `Frame`'s contents out to disk, overwriting data on the disk,
-    pub async fn write(&self, pid: PageId, frame: Frame) -> BufResult<(), Frame> {
-        todo!()
-    }
+    pub async fn write(&self, pid: PageId, frame: Frame) -> BufResult<usize, Frame> {
+        let page_index: u64 = Into::into(pid);
+        let offset = page_index * (PAGE_SIZE as u64);
 
-    /// Removes a page of memory from the disk, allowing the `PageId` to be used for other things.
-    pub fn remove(&self, pid: PageId) -> io::Result<()> {
-        todo!()
+        self.fd.write_fixed_at(frame, offset).await
     }
 }
