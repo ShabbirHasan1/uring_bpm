@@ -133,7 +133,7 @@ unsafe impl IoBufMut for SharedFrame {
         self.buf.as_mut_ptr()
     }
 
-    unsafe fn set_init(&mut self, pos: usize) {
+    unsafe fn set_init(&mut self, _: usize) {
         panic!("Not allowed to change the size of a page")
     }
 }

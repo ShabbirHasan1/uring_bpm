@@ -27,6 +27,10 @@ impl DiskManager {
         Ok(Self { file_path, fd })
     }
 
+    pub fn file_name(&self) -> &str {
+        &self.file_path
+    }
+
     /// Reads a page on disk into a `Frame`, overwriting any data in the input `Frame`,
     pub async fn read(&self, pid: PageId, frame: Frame) -> BufResult<usize, Frame> {
         let page_index: u64 = Into::into(pid);

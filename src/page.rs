@@ -149,7 +149,7 @@ impl Page {
 
         // Bring in new data to that frame
         let (res, frame) = self.bpm.disk_manager().read(self.pid, frame).await;
-        res.expect("Unable to read in data from disk");
+        res.expect("Unable to write data to disk");
 
         // Give ownership to the `Swip`
         guard.data.replace(frame);
@@ -189,6 +189,7 @@ impl Page {
 
         // Write the frame's data back out to disk
         let (res, frame) = self.bpm.disk_manager().write(self.pid, frame).await;
+        res.expect("Unable to write data to disk");
 
         Ok(frame)
     }
