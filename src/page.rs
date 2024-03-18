@@ -86,6 +86,33 @@ pub struct Swip {
 }
 
 impl Page {
+    /// Loads page data in from disk.
+    async fn load<'a>(
+        &self,
+        mut write_guard: RwLockWriteGuard<'a, Swip>,
+    ) -> RwLockWriteGuard<'a, Swip> {
+        assert_eq!(self.state.load(Ordering::Acquire), COLD);
+
+        // The page is not in memory, so we need to go grab a free frame to bring it in
+        let frame = self.bpm.get_free_frame().await;
+
+        // Bring in new data to that frame
+        let (res, frame) = self.bpm.disk_manager().read(self.pid, frame).await;
+        res.expect("Unable to write data to disk");
+
+        // Give ownership to the `Swip`
+        write_guard.data.replace(frame);
+
+        // Safety: We are storing `COOL` while there exists a valid frame in memory,
+        // so this is completely safe.
+        unsafe {
+            // Since we only just brought this into memory, it is a cold page
+            self.state.store(COOL, Ordering::Release);
+        }
+
+        write_guard
+    }
+
     /// Reads a page.
     pub async fn read(&self) -> ReadPageGuard {
         self.state.make_hot();
@@ -98,71 +125,38 @@ impl Page {
             }
         }
 
-        {
-            // The page is not in memory, so we need to bring it in
-            let mut write_guard = self.swip.write().await;
+        // The page is not in memory, so we need to bring it in
+        let write_guard = self.swip.write().await;
 
-            if write_guard.data.is_some() {
-                // Someone other writer got in front of us and updated for us
-                assert_ne!(self.state.load(Ordering::Acquire), COLD);
-                self.state.make_hot();
+        if write_guard.data.is_some() {
+            // Someone other writer got in front of us and updated for us
+            assert_ne!(self.state.load(Ordering::Acquire), COLD);
+            self.state.make_hot();
 
-                return ReadPageGuard::new(write_guard.downgrade()).unwrap();
-            }
-
-            assert_eq!(self.state.load(Ordering::Acquire), COLD);
-
-            // We need to go grab a free frame
-            let frame = self.bpm.get_free_frame().await;
-
-            // Bring in new data to that frame
-            let (res, frame) = self.bpm.disk_manager().read(self.pid, frame).await;
-            res.expect("Unable to read in data from disk");
-
-            // Give ownership to the `Swip`
-            write_guard.data.replace(frame);
-
-            // Safety: We are storing `COOL` while there exists a valid frame in memory,
-            // so this is completely safe.
-            unsafe {
-                // Since we only just brought this into memory, it is a cold page
-                self.state.store(COOL, Ordering::Release);
-            }
-
-            // Return the downgraded guard that now has the valid data
             return ReadPageGuard::new(write_guard.downgrade()).unwrap();
         }
+
+        let write_guard = self.load(write_guard).await;
+
+        // Return the downgraded guard that now has the valid data
+        return ReadPageGuard::new(write_guard.downgrade()).unwrap();
     }
 
     /// Writes to a page.
     pub async fn write(&self) -> WritePageGuard {
         self.state.make_hot();
 
-        let mut guard = self.swip.write().await;
-        if guard.data.is_some() {
+        let write_guard = self.swip.write().await;
+
+        if write_guard.data.is_some() {
             // We checked that the data is the `Some` variant, so this will not panic
-            return WritePageGuard::new(guard).unwrap();
+            return WritePageGuard::new(write_guard).unwrap();
         }
 
-        // The page is not in memory, so we need to go grab a free frame to bring it in
-        let frame = self.bpm.get_free_frame().await;
-
-        // Bring in new data to that frame
-        let (res, frame) = self.bpm.disk_manager().read(self.pid, frame).await;
-        res.expect("Unable to write data to disk");
-
-        // Give ownership to the `Swip`
-        guard.data.replace(frame);
-
-        // Safety: We are storing `COOL` while there exists a valid frame in memory,
-        // so this is completely safe.
-        unsafe {
-            // Since we only just brought this into memory, it is a cold page
-            self.state.store(COOL, Ordering::Release);
-        }
+        let write_guard = self.load(write_guard).await;
 
         // Return the guard that now has the valid data
-        return WritePageGuard::new(guard).unwrap();
+        return WritePageGuard::new(write_guard).unwrap();
     }
 
     /// Evicts a page and returns back the frame it used to own
