@@ -7,6 +7,10 @@ use std::{
 };
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+/// The size of a page of data on disk and in memory, 4KB.
+pub const PAGE_SIZE: usize = 1 << 12;
+
+/// An identifier for a logical 4KB page of data.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PageId {
     id: usize,
@@ -18,8 +22,6 @@ impl From<PageId> for u64 {
         val.id as u64
     }
 }
-
-pub const PAGE_SIZE: usize = 1 << 12; // 4096
 
 const HOT: u8 = 0;
 const COOL: u8 = 1;
@@ -36,13 +38,14 @@ impl Temperature {
     ///
     /// We don't care if this fails, since if it was already `HOT` then we don't need to to
     /// anything, and if it was `COLD`, we don't want to change it.
-    fn make_hot(&self) {
+    fn try_hot(&self) {
         // Ignore the result
         let _ = self
             .0
             .compare_exchange(COOL, HOT, Ordering::Release, Ordering::Relaxed);
     }
 
+    /// Loads the value of the [`Temperature`]
     fn load(&self, order: Ordering) -> u8 {
         self.0.load(order)
     }
@@ -66,6 +69,7 @@ impl Temperature {
     }
 }
 
+// An owned page handle, with an inner [`RwLock`]-protected [`Swip`].
 pub struct Page {
     /// The unique ID of the logical page of data.
     pid: PageId,
@@ -80,6 +84,7 @@ pub struct Page {
     bpm: Arc<BufferPool>,
 }
 
+/// Either an owned memory frame shared with the kernel, or [`None`].
 #[derive(Default)]
 pub struct Swip {
     data: Option<Frame>,
@@ -115,7 +120,7 @@ impl Page {
 
     /// Reads a page.
     pub async fn read(&self) -> ReadPageGuard {
-        self.state.make_hot();
+        self.state.try_hot();
 
         {
             let guard = self.swip.read().await;
@@ -131,7 +136,7 @@ impl Page {
         if write_guard.data.is_some() {
             // Someone other writer got in front of us and updated for us
             assert_ne!(self.state.load(Ordering::Acquire), COLD);
-            self.state.make_hot();
+            self.state.try_hot();
 
             return ReadPageGuard::new(write_guard.downgrade()).unwrap();
         }
@@ -144,7 +149,7 @@ impl Page {
 
     /// Writes to a page.
     pub async fn write(&self) -> WritePageGuard {
-        self.state.make_hot();
+        self.state.try_hot();
 
         let write_guard = self.swip.write().await;
 
