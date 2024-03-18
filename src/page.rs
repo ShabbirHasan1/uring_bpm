@@ -25,14 +25,53 @@ impl From<PageId> for u64 {
 
 pub const PAGE_SIZE: usize = 1 << 12; // 4096
 
+/// 3 States: Hot, Cool, and Cold
+/// If it is Hot or Cool, then the page is in memory (Some variant)
+/// If it is Cold, the page is not in memory (None variant)
+/// When this is Cold,
+struct Temperature(AtomicU8);
+
+impl Temperature {
+    /// Changes state from `COOL` to `HOT. Does not change state if it is `COLD` or `HOT`.
+    ///
+    /// We don't care if this fails, since if it was already `HOT` then we don't need to to
+    /// anything, and if it was `COLD`, we don't want to change it.
+    fn make_hot(&self) {
+        // Ignore the result
+        let _ = self
+            .0
+            .compare_exchange(COOL, HOT, Ordering::Release, Ordering::Relaxed);
+    }
+
+    fn load(&self, order: Ordering) -> u8 {
+        self.0.load(order)
+    }
+
+    /// Sets the Temperature to the input value.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that they only store `COLD` or `COOL`.
+    /// Additionally, if the caller is attempting to store `COOL`, they must
+    /// ensure that the [`Swip`] that they are coupling this value to actually
+    /// exists in memory (is the [`Some`] variant).
+    ///
+    /// There are no requirements for storing COLD.
+    ///
+    /// This ensures that the only way to make a page `HOT` is by storing `COLD`
+    /// and then making it [`HOT`].
+    unsafe fn store(&self, val: u8, order: Ordering) {
+        assert!(val == COLD || val == COOL);
+        self.0.store(val, order)
+    }
+}
+
 pub struct Page {
     /// The unique ID of the logical page of data.
     pid: PageId,
 
-    /// 3 States: Hot, Cool, and Cold
-    /// If it is Hot or Cool, then the page is in memory (Some variant)
-    /// If it is Cold, the page is not in memory (None variant)
-    state: AtomicU8,
+    /// The state of the page
+    state: Temperature,
 
     /// Protected Swip
     swip: RwLock<Swip>,
@@ -47,20 +86,9 @@ pub struct Swip {
 }
 
 impl Page {
-    /// Changes state from `COOL` to `HOT. Does not change state if it is `COLD` or `HOT`.
-    ///
-    /// We don't care if this fails, since if it was already `HOT` then we don't need to to
-    /// anything, and if it was `COLD`, we don't want to change it.
-    fn make_hot(&self) {
-        // Ignore the result
-        let _ = self
-            .state
-            .compare_exchange(COOL, HOT, Ordering::Release, Ordering::Relaxed);
-    }
-
     /// Reads a page.
     pub async fn read(&self) -> ReadPageGuard {
-        self.make_hot();
+        self.state.make_hot();
 
         {
             let guard = self.swip.read().await;
@@ -77,7 +105,7 @@ impl Page {
             if write_guard.data.is_some() {
                 // Someone other writer got in front of us and updated for us
                 assert_ne!(self.state.load(Ordering::Acquire), COLD);
-                self.make_hot();
+                self.state.make_hot();
 
                 return ReadPageGuard::new(write_guard.downgrade()).unwrap();
             }
@@ -94,8 +122,12 @@ impl Page {
             // Give ownership to the `Swip`
             write_guard.data.replace(frame);
 
-            // Since we only just brought this into memory, it is a hot page
-            self.state.store(HOT, Ordering::Release);
+            // Safety: We are storing `COOL` while there exists a valid frame in memory,
+            // so this is completely safe.
+            unsafe {
+                // Since we only just brought this into memory, it is a cold page
+                self.state.store(COOL, Ordering::Release);
+            }
 
             // Return the downgraded guard that now has the valid data
             return ReadPageGuard::new(write_guard.downgrade()).unwrap();
@@ -104,7 +136,7 @@ impl Page {
 
     /// Writes to a page.
     pub async fn write(&self) -> WritePageGuard {
-        self.make_hot();
+        self.state.make_hot();
 
         let mut guard = self.swip.write().await;
         if guard.data.is_some() {
@@ -122,8 +154,12 @@ impl Page {
         // Give ownership to the `Swip`
         guard.data.replace(frame);
 
-        // Since we only just brought this into memory, it is a hot page
-        self.state.store(HOT, Ordering::Release);
+        // Safety: We are storing `COOL` while there exists a valid frame in memory,
+        // so this is completely safe.
+        unsafe {
+            // Since we only just brought this into memory, it is a cold page
+            self.state.store(COOL, Ordering::Release);
+        }
 
         // Return the guard that now has the valid data
         return WritePageGuard::new(guard).unwrap();
@@ -131,7 +167,11 @@ impl Page {
 
     /// Evicts a page and returns back the frame it used to own
     pub async fn evict(&self) -> io::Result<Frame> {
-        self.state.store(COLD, Ordering::Release);
+        // Safety: We are storing `COLD`, which has no requirements, so this is safe
+        unsafe {
+            // We want to signal to other threads that we are evicting this page
+            self.state.store(COLD, Ordering::Release);
+        }
 
         let mut guard = self.swip.write().await;
 
